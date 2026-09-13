@@ -1,8 +1,6 @@
 package handler
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,32 +25,6 @@ var vmNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 // validateVMName 校验虚拟机名称合法性
 func validateVMName(name string) bool {
 	return vmNameRegex.MatchString(name)
-}
-
-// randomMAC 生成一个 52:54:00:xx:xx:xx 格式的 KVM 默认 MAC 地址
-func randomMAC() (string, error) {
-	b := make([]byte, 3)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("52:54:00:%02x:%02x:%02x", b[0], b[1], b[2]), nil
-}
-
-// randomUUID 生成一个符合 RFC 4122 的 v4 UUID 字符串
-func randomUUID() (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%s-%s-%s-%s-%s",
-		hex.EncodeToString(b[0:4]),
-		hex.EncodeToString(b[4:6]),
-		hex.EncodeToString(b[6:8]),
-		hex.EncodeToString(b[8:10]),
-		hex.EncodeToString(b[10:16]),
-	), nil
 }
 
 // VMHandler 虚拟机处理器
@@ -95,21 +67,21 @@ func (h *VMHandler) submitTaskGuard(c *gin.Context) bool {
 	return true
 }
 
-// VMInfo virsh返回的虚拟机信息
-type VMInfo struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	State string `json:"state"`
-}
-
-// HostInfo 宿主机信息
-type HostInfo struct {
-	Hostname string `json:"hostname"`
-	Kernel   string `json:"kernel"`
-	CPUs     string `json:"cpus"`
-	MemTotal string `json:"memTotal"`
-	MemUsed  string `json:"memUsed"`
-	Uptime   string `json:"uptime"`
+// findVM 按 path 主键查 VM：paramID 解析 + 404 响应一体。
+// 返回 false 时已写好「虚拟机不存在」响应，调用方直接 return。
+// 抽出目的：该 7 行样板在 20+ 个 handler 里逐字重复（冗余清理批次收敛）。
+// 注意：GetVM/GetVMSpec/CloneVM 需要 Preload("Host")，仍保持手写查询，不走本方法。
+func (h *VMHandler) findVM(c *gin.Context) (model.VM, bool) {
+	id, ok := paramID(c, "id")
+	if !ok {
+		return model.VM{}, false
+	}
+	var vm model.VM
+	if err := h.DB.First(&vm, id).Error; err != nil {
+		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
+		return model.VM{}, false
+	}
+	return vm, true
 }
 
 // ListVMs 获取虚拟机列表（含运行中 VM 的实时性能，合并 vm-perf，列表页一次请求即可渲染指标）。
@@ -152,14 +124,10 @@ func (h *VMHandler) ListVMs(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code":    200,
-		"message": "success",
-		"data": gin.H{
-			"total": len(vms),
-			"items": vms,
-			"perf":  perf,
-		},
+	Success(c, gin.H{
+		"total": len(vms),
+		"items": vms,
+		"perf":  perf,
 	})
 }
 
@@ -185,11 +153,7 @@ func (h *VMHandler) GetVM(c *gin.Context) {
 		h.DB.Model(&vm).Update("status", state)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code":    200,
-		"message": "success",
-		"data":    vm,
-	})
+	Success(c, vm)
 }
 
 // CreateVM 创建虚拟机（异步：校验基础参数后 Submit create_vm，后台执行 provision）。
@@ -257,11 +221,7 @@ func (h *VMHandler) CreateVM(c *gin.Context) {
 		ErrorWithMessage(c, http.StatusInternalServerError, "提交任务失败", err)
 		return
 	}
-	c.JSON(http.StatusAccepted, gin.H{
-		"code":    http.StatusAccepted,
-		"message": "任务已提交",
-		"data":    gin.H{"task_id": task.ID},
-	})
+	Accepted(c, "任务已提交", gin.H{"task_id": task.ID})
 }
 
 // GetVMSpec 返回虚拟机完整配置（DB 记录 + DomainSpec，spec 含 raw_xml 回显）。
@@ -294,13 +254,8 @@ func (h *VMHandler) GetVMSpec(c *gin.Context) {
 // 请求体为完整 DomainSpec（raw_xml 忽略）；VM 运行中禁止修改，须先关机。
 // 同步回写 DB 的 vcpu / memory_mb / disk_gb（首个磁盘容量近似）/ mac_address（首个网卡）。
 func (h *VMHandler) UpdateVMSpec(c *gin.Context) {
-	id, ok := paramID(c, "id")
+	vm, ok := h.findVM(c)
 	if !ok {
-		return
-	}
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
 		return
 	}
 
@@ -351,13 +306,8 @@ func (h *VMHandler) UpdateVMSpec(c *gin.Context) {
 
 // PauseVM 暂停虚拟机（对应 virsh suspend）。
 func (h *VMHandler) PauseVM(c *gin.Context) {
-	id, ok := paramID(c, "id")
+	vm, ok := h.findVM(c)
 	if !ok {
-		return
-	}
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
 		return
 	}
 	if err := h.Virt.PauseDomain(vm.Name); err != nil {
@@ -370,13 +320,8 @@ func (h *VMHandler) PauseVM(c *gin.Context) {
 
 // ResumeVM 恢复已暂停的虚拟机（对应 virsh resume）。
 func (h *VMHandler) ResumeVM(c *gin.Context) {
-	id, ok := paramID(c, "id")
+	vm, ok := h.findVM(c)
 	if !ok {
-		return
-	}
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
 		return
 	}
 	if err := h.Virt.ResumeDomain(vm.Name); err != nil {
@@ -390,13 +335,8 @@ func (h *VMHandler) ResumeVM(c *gin.Context) {
 // AttachDisk 热插拔磁盘（对应 virsh attach-device，运行中生效并落配置）。
 // body: {disk: DiskSpec}；disk.Target 为空时按 bus 自动分配（NextDiskTarget）。
 func (h *VMHandler) AttachDisk(c *gin.Context) {
-	id, ok := paramID(c, "id")
+	vm, ok := h.findVM(c)
 	if !ok {
-		return
-	}
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
 		return
 	}
 
@@ -434,13 +374,8 @@ func (h *VMHandler) AttachDisk(c *gin.Context) {
 // body 可空：{size_gb（缺省 20）, pool（缺省用虚拟机记录的 storage_pool）}。
 // 卷名 <vm名>-dN.qcow2，N 从现有数据盘数顺延并跳过池内已占用的名字，避免重名冲突。
 func (h *VMHandler) QuickAttachDisk(c *gin.Context) {
-	id, ok := paramID(c, "id")
+	vm, ok := h.findVM(c)
 	if !ok {
-		return
-	}
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
 		return
 	}
 
@@ -522,13 +457,8 @@ func (h *VMHandler) QuickAttachDisk(c *gin.Context) {
 // EnsureStandardDevices 补齐标准设备（guest-agent 通道 + virtio-rng），幂等。
 // 用于把存量虚拟机配置对齐到新装机的标准设备集；响应返回本次实际添加的设备列表。
 func (h *VMHandler) EnsureStandardDevices(c *gin.Context) {
-	id, ok := paramID(c, "id")
+	vm, ok := h.findVM(c)
 	if !ok {
-		return
-	}
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
 		return
 	}
 	attached, err := h.Virt.EnsureStandardDevices(vm.Name)
@@ -573,14 +503,9 @@ func detachVolKeepReason(src string, managedImages map[string]bool, backingChild
 // 池外文件不属于平台托管，但既然是显式删卷指令仍然删除（守卫 a/b 优先于该规则）。
 // 响应：{vm, target, volume_deleted, volume, keep_reason（未删时）}。
 func (h *VMHandler) DetachDisk(c *gin.Context) {
-	id, ok := paramID(c, "id")
-	if !ok {
-		return
-	}
 	target := c.Param("target")
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
+	vm, ok := h.findVM(c)
+	if !ok {
 		return
 	}
 	deleteVolume := c.Query("delete_volume") == "true"
@@ -720,13 +645,8 @@ func (h *VMHandler) DetachDisk(c *gin.Context) {
 // AttachInterface 添加网卡（对应 virsh attach-interface，运行中生效并落配置）。
 // body: {interface: InterfaceSpec}；mac 为空自动生成。
 func (h *VMHandler) AttachInterface(c *gin.Context) {
-	id, ok := paramID(c, "id")
+	vm, ok := h.findVM(c)
 	if !ok {
-		return
-	}
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
 		return
 	}
 
@@ -744,7 +664,7 @@ func (h *VMHandler) AttachInterface(c *gin.Context) {
 		req.Interface.Source = "default"
 	}
 	if req.Interface.MAC == "" {
-		mac, err := randomMAC()
+		mac, err := virt.RandomMAC()
 		if err != nil {
 			ErrorWithMessage(c, http.StatusInternalServerError, "生成网卡 MAC 失败", err)
 			return
@@ -761,14 +681,9 @@ func (h *VMHandler) AttachInterface(c *gin.Context) {
 
 // DetachInterface 移除网卡（对应 virsh detach-interface，按 MAC 地址匹配）。
 func (h *VMHandler) DetachInterface(c *gin.Context) {
-	id, ok := paramID(c, "id")
-	if !ok {
-		return
-	}
 	mac := c.Param("mac")
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
+	vm, ok := h.findVM(c)
+	if !ok {
 		return
 	}
 	if err := h.Virt.DetachInterface(vm.Name, mac); err != nil {
@@ -782,13 +697,8 @@ func (h *VMHandler) DetachInterface(c *gin.Context) {
 // 停机态通过重 define 修改持久配置（setvcpus CONFIG 无法超 <vcpu> 上限）；
 // 运行态走 live API（仅可调至启动时最大核数以内，超出提示关机）。
 func (h *VMHandler) SetVcpu(c *gin.Context) {
-	id, ok := paramID(c, "id")
+	vm, ok := h.findVM(c)
 	if !ok {
-		return
-	}
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
 		return
 	}
 
@@ -832,13 +742,8 @@ func (h *VMHandler) SetVcpu(c *gin.Context) {
 // SetMemory 调整内存（对应 virsh setmem），同步 DB。
 // 停机态通过重 define 修改持久配置；运行态走 live API（仅可调至启动时最大内存以内）。
 func (h *VMHandler) SetMemory(c *gin.Context) {
-	id, ok := paramID(c, "id")
+	vm, ok := h.findVM(c)
 	if !ok {
-		return
-	}
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
 		return
 	}
 
@@ -879,13 +784,8 @@ func (h *VMHandler) SetMemory(c *gin.Context) {
 
 // SetAutostart 设置开机自启（对应 virsh autostart）。
 func (h *VMHandler) SetAutostart(c *gin.Context) {
-	id, ok := paramID(c, "id")
+	vm, ok := h.findVM(c)
 	if !ok {
-		return
-	}
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
 		return
 	}
 
@@ -903,17 +803,10 @@ func (h *VMHandler) SetAutostart(c *gin.Context) {
 	Success(c, gin.H{"vm": vm.Name, "autostart": req.Enabled})
 }
 
-
-
 // GetVMStats 返回虚拟机实时性能统计（服务端差分计算 CPU/IO 速率）。
 func (h *VMHandler) GetVMStats(c *gin.Context) {
-	id, ok := paramID(c, "id")
+	vm, ok := h.findVM(c)
 	if !ok {
-		return
-	}
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
 		return
 	}
 	stats, err := h.Virt.GetDomainStats(vm.Name)
@@ -969,23 +862,13 @@ func (h *VMHandler) CloneVM(c *gin.Context) {
 		ErrorWithMessage(c, http.StatusInternalServerError, "提交任务失败", err)
 		return
 	}
-	c.JSON(http.StatusAccepted, gin.H{
-		"code":    http.StatusAccepted,
-		"message": "任务已提交",
-		"data":    gin.H{"task_id": task.ID},
-	})
+	Accepted(c, "任务已提交", gin.H{"task_id": task.ID})
 }
 
 // StartVM 启动虚拟机
 func (h *VMHandler) StartVM(c *gin.Context) {
-	id, ok := paramID(c, "id")
+	vm, ok := h.findVM(c)
 	if !ok {
-		return
-	}
-
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
 		return
 	}
 
@@ -1010,13 +893,8 @@ func (h *VMHandler) StopVM(c *gin.Context) {
 	if !h.submitTaskGuard(c) {
 		return
 	}
-	id, ok := paramID(c, "id")
+	vm, ok := h.findVM(c)
 	if !ok {
-		return
-	}
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
 		return
 	}
 	payload := map[string]interface{}{"vm_id": vm.ID}
@@ -1027,23 +905,13 @@ func (h *VMHandler) StopVM(c *gin.Context) {
 		ErrorWithMessage(c, http.StatusInternalServerError, "提交任务失败", err)
 		return
 	}
-	c.JSON(http.StatusAccepted, gin.H{
-		"code":    http.StatusAccepted,
-		"message": "任务已提交",
-		"data":    gin.H{"task_id": task.ID},
-	})
+	Accepted(c, "任务已提交", gin.H{"task_id": task.ID})
 }
 
 // RestartVM 重启虚拟机
 func (h *VMHandler) RestartVM(c *gin.Context) {
-	id, ok := paramID(c, "id")
+	vm, ok := h.findVM(c)
 	if !ok {
-		return
-	}
-
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
 		return
 	}
 
@@ -1065,13 +933,8 @@ func (h *VMHandler) DeleteVM(c *gin.Context) {
 	if !h.submitTaskGuard(c) {
 		return
 	}
-	id, ok := paramID(c, "id")
+	vm, ok := h.findVM(c)
 	if !ok {
-		return
-	}
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
 		return
 	}
 	payload := map[string]interface{}{"vm_id": vm.ID}
@@ -1082,22 +945,13 @@ func (h *VMHandler) DeleteVM(c *gin.Context) {
 		ErrorWithMessage(c, http.StatusInternalServerError, "提交任务失败", err)
 		return
 	}
-	c.JSON(http.StatusAccepted, gin.H{
-		"code":    http.StatusAccepted,
-		"message": "任务已提交",
-		"data":    gin.H{"task_id": task.ID},
-	})
+	Accepted(c, "任务已提交", gin.H{"task_id": task.ID})
 }
 
 // GetVMXML 获取虚拟机 XML 定义
 func (h *VMHandler) GetVMXML(c *gin.Context) {
-	id, ok := paramID(c, "id")
+	vm, ok := h.findVM(c)
 	if !ok {
-		return
-	}
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
 		return
 	}
 
@@ -1112,13 +966,8 @@ func (h *VMHandler) GetVMXML(c *gin.Context) {
 
 // UpdateVMXML 更新虚拟机 XML 定义（高级功能）
 func (h *VMHandler) UpdateVMXML(c *gin.Context) {
-	id, ok := paramID(c, "id")
+	vm, ok := h.findVM(c)
 	if !ok {
-		return
-	}
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
 		return
 	}
 
@@ -1140,13 +989,8 @@ func (h *VMHandler) UpdateVMXML(c *gin.Context) {
 
 // ListSnapshots 获取虚拟机快照列表（返回 SnapshotInfo 详情数组，含 description/creation_time/state）。
 func (h *VMHandler) ListSnapshots(c *gin.Context) {
-	id, ok := paramID(c, "id")
+	vm, ok := h.findVM(c)
 	if !ok {
-		return
-	}
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
 		return
 	}
 
@@ -1161,13 +1005,8 @@ func (h *VMHandler) ListSnapshots(c *gin.Context) {
 
 // CreateSnapshot 创建虚拟机快照（body: {name, description?}）。
 func (h *VMHandler) CreateSnapshot(c *gin.Context) {
-	id, ok := paramID(c, "id")
+	vm, ok := h.findVM(c)
 	if !ok {
-		return
-	}
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
 		return
 	}
 
@@ -1194,14 +1033,9 @@ func (h *VMHandler) CreateSnapshot(c *gin.Context) {
 
 // DeleteSnapshot 删除虚拟机快照
 func (h *VMHandler) DeleteSnapshot(c *gin.Context) {
-	id, ok := paramID(c, "id")
-	if !ok {
-		return
-	}
 	snapName := c.Param("snap")
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
+	vm, ok := h.findVM(c)
+	if !ok {
 		return
 	}
 
@@ -1215,14 +1049,9 @@ func (h *VMHandler) DeleteSnapshot(c *gin.Context) {
 
 // RevertSnapshot 回滚虚拟机到指定快照
 func (h *VMHandler) RevertSnapshot(c *gin.Context) {
-	id, ok := paramID(c, "id")
-	if !ok {
-		return
-	}
 	snapName := c.Param("snap")
-	var vm model.VM
-	if err := h.DB.First(&vm, id).Error; err != nil {
-		ErrorWithMessage(c, http.StatusNotFound, "虚拟机不存在", err)
+	vm, ok := h.findVM(c)
+	if !ok {
 		return
 	}
 
@@ -1392,16 +1221,6 @@ func (h *VMHandler) trackedUUIDs() (map[string]bool, error) {
 		set[u] = true
 	}
 	return set, nil
-}
-
-// VMCreateOptions 创建虚拟机向导所需的静态选项（对应契约 GET /api/vms/options）。
-type VMCreateOptions struct {
-	Pools        []string           `json:"pools"`
-	Networks     []string           `json:"networks"`
-	CloudImages  []model.Image      `json:"cloud_images"`
-	OSList       []virt.OSItem      `json:"os_list"`
-	StoragePools []virt.PoolInfo    `json:"storage_pools,omitempty"`
-	NetInfo      []virt.NetworkInfo `json:"network_info,omitempty"`
 }
 
 // GetVMOptions 返回创建虚拟机向导的选项（存储池、网络、云镜像、OS 列表）。

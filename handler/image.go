@@ -483,11 +483,7 @@ func (h *ImageHandler) CloneVM(c *gin.Context) {
 		ErrorWithMessage(c, http.StatusInternalServerError, "提交任务失败", err)
 		return
 	}
-	c.JSON(http.StatusAccepted, gin.H{
-		"code":    http.StatusAccepted,
-		"message": "任务已提交",
-		"data":    gin.H{"task_id": task.ID},
-	})
+	Accepted(c, "任务已提交", gin.H{"task_id": task.ID})
 }
 
 // sanitizeFileName 仅保留安全字符，过滤路径分隔符与特殊字符

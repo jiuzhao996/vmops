@@ -16,7 +16,6 @@ type AuditLog struct {
 	SourceIP   string    `gorm:"size:45" json:"source_ip"`
 	Status     string    `gorm:"size:20;default:success" json:"status"`
 	CreatedAt  time.Time `gorm:"index" json:"created_at"`
-	User       *User     `gorm:"foreignKey:UserID" json:"user,omitempty"`
 }
 
 // TableName 指定表名

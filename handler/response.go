@@ -35,6 +35,17 @@ func Created(c *gin.Context, message string, data interface{}) {
 	})
 }
 
+// Accepted 返回异步任务受理响应，HTTP 202，统一格式 {"code":202,"message":msg,"data":{task_id:...}}。
+// 抽出目的：6 个异步任务提交 handler（创建/克隆/停止/删除虚拟机、克隆镜像、孤儿卷清理）
+// 的 c.JSON 块逐字重复（冗余清理批次收敛），前端凭 task_id 轮询 GET /api/tasks/:id。
+func Accepted(c *gin.Context, message string, data interface{}) {
+	c.JSON(http.StatusAccepted, gin.H{
+		"code":    http.StatusAccepted,
+		"message": message,
+		"data":    data,
+	})
+}
+
 // ErrorResponse 统一处理操作失败：完整错误写入服务端日志，仅向前端返回友好消息。
 // 内部细节（libvirt 原始错误、系统信息）不外泄。
 func ErrorResponse(c *gin.Context, status int, err error) {

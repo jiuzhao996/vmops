@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/jiuzhao/vmops/service/virt"
 )
 
 // TestValidPoolPath 覆盖目录型存储池路径校验（对应 virsh pool-define-as --target）。
@@ -410,23 +412,22 @@ func TestTaskUserFromContext(t *testing.T) {
 // uintPtr 便于在表里写期望的 *uint。
 func uintPtr(v uint) *uint { return &v }
 
-// macFormatHandler / uuidV4FormatHandler 与 service/virt、service/tasks 里的同名校验一致。
+// macFormatHandler / uuidV4FormatHandler 校验 virt.RandomMAC / virt.RandomUUID 的输出格式。
 var (
 	macFormatHandler    = regexp.MustCompile(`^52:54:00:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}$`)
 	uuidV4FormatHandler = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 )
 
-// TestHandlerRandomMACAndUUID 覆盖 handler 包内的 MAC/UUID 生成器。
+// TestHandlerRandomMACAndUUID 覆盖 handler 实际使用的 MAC/UUID 生成器（virt.RandomMAC / virt.RandomUUID）。
 //
 // 风险点：MAC 重复会让同网段两台机 ARP 冲突、网络双双不可用（P2 批次修过一次同类缺陷）；
-// UUID 重复会撞 vms.uuid 唯一索引导致创建失败。注意这两个函数在
-// handler/vm.go、service/tasks/vm_tasks.go、service/virt/clone.go 里各有一份**独立实现**，
-// 三处都要各自有测试，改一处不会自动惠及另外两处。
+// UUID 重复会撞 vms.uuid 唯一索引导致创建失败。冗余清理批次已把三份逐字相同的实现
+// 收归 service/virt 一处导出，本测试从 handler 调用路径验证共享实现。
 func TestHandlerRandomMACAndUUID(t *testing.T) {
 	t.Run("MAC 前缀固定 52:54:00 且 300 次不重复", func(t *testing.T) {
 		seen := make(map[string]bool, 300)
 		for i := 0; i < 300; i++ {
-			mac, err := randomMAC()
+			mac, err := virt.RandomMAC()
 			if err != nil {
 				t.Fatalf("第 %d 次生成 MAC 失败: %v", i, err)
 			}
@@ -443,7 +444,7 @@ func TestHandlerRandomMACAndUUID(t *testing.T) {
 	t.Run("UUID 符合 RFC 4122 v4 且 300 次不重复", func(t *testing.T) {
 		seen := make(map[string]bool, 300)
 		for i := 0; i < 300; i++ {
-			uuid, err := randomUUID()
+			uuid, err := virt.RandomUUID()
 			if err != nil {
 				t.Fatalf("第 %d 次生成 UUID 失败: %v", i, err)
 			}

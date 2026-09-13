@@ -421,11 +421,7 @@ func (h *StorageHandler) CleanupOrphans(c *gin.Context) {
 		ErrorWithMessage(c, http.StatusInternalServerError, "提交任务失败", err)
 		return
 	}
-	c.JSON(http.StatusAccepted, gin.H{
-		"code":    http.StatusAccepted,
-		"message": "清理任务已提交",
-		"data":    gin.H{"task_id": task.ID},
-	})
+	Accepted(c, "清理任务已提交", gin.H{"task_id": task.ID})
 }
 
 // volumeInUseReason 生成删卷守卫的中文拒绝原因（逐类列出引用方）。

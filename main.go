@@ -399,58 +399,37 @@ func main() {
 //   - tasks: pending/running 的任务队列已丢，不可重入（executor 非幂等，重跑会重复建盘），标记 failed 并写明原因
 //   - console_sessions: ssh/serial 的 WS 随进程死亡，标记 closed；VNC 靠 last_seen 过期清扫，不动
 //
-// startAuditRetention 审计日志保留期清理：启动跑一轮 + 每 24h 一轮，
-// 删除 30 天前的记录（分批 DELETE 防止单语句锁表太久）。
-// 背景：审计表曾因 GET 轮询全量记录在数小时内膨胀到 6 万条；GET 已不再入审计，
-// 此任务兜底长期运行的存量增长。后台 goroutine 自带 recover（见 AGENTS 并发规范）。
+// startAuditRetention / startAlertRetention 共用同一套保留期清理循环
+// startRetentionLoop：启动跑一轮 + 每 24h 一轮，删除 30 天前的记录
+// （分批 DELETE 防止单语句锁表太久）。后台 goroutine 自带 recover（见 AGENTS 并发规范）。
+//
+// startAuditRetention 审计日志：曾因 GET 轮询全量记录在数小时内膨胀到 6 万条；
+// GET 已不再入审计，此任务兜底长期运行的存量增长。
 func startAuditRetention(db *gorm.DB) {
-	go func() {
-		defer func() {
-			if rec := recover(); rec != nil {
-				log.Printf("[audit] 保留期清理 panic=%v\n%s", rec, debug.Stack())
-			}
-		}()
-
-		cleanup := func() {
-			cutoff := time.Now().AddDate(0, 0, -30)
-			for {
-				res := db.Exec("DELETE FROM audit_logs WHERE created_at < ? LIMIT 10000", cutoff)
-				if res.Error != nil {
-					log.Printf("[audit] 保留期清理失败: %v", res.Error)
-					return
-				}
-				if res.RowsAffected < 10000 {
-					return
-				}
-				time.Sleep(200 * time.Millisecond)
-			}
-		}
-
-		cleanup()
-		ticker := time.NewTicker(24 * time.Hour)
-		defer ticker.Stop()
-		for range ticker.C {
-			cleanup()
-		}
-	}()
+	startRetentionLoop(db, "audit_logs", "[audit]")
 }
 
 // startAlertRetention 告警历史保留期清理：webhook 按 fingerprint upsert 本身有去重，
 // 但指纹空间无上限（公开端点被刷或长期运行都会涨），照审计同款策略删 30 天前的记录。
 func startAlertRetention(db *gorm.DB) {
+	startRetentionLoop(db, "alerts", "[alerts]")
+}
+
+// startRetentionLoop 保留期清理公共循环：30 天前分批删除，24h 一轮，启动即先跑一轮。
+func startRetentionLoop(db *gorm.DB, table, logPrefix string) {
 	go func() {
 		defer func() {
 			if rec := recover(); rec != nil {
-				log.Printf("[alerts] 保留期清理 panic=%v\n%s", rec, debug.Stack())
+				log.Printf("%s 保留期清理 panic=%v\n%s", logPrefix, rec, debug.Stack())
 			}
 		}()
 
 		cleanup := func() {
 			cutoff := time.Now().AddDate(0, 0, -30)
 			for {
-				res := db.Exec("DELETE FROM alerts WHERE created_at < ? LIMIT 10000", cutoff)
+				res := db.Exec("DELETE FROM " + table + " WHERE created_at < ? LIMIT 10000", cutoff)
 				if res.Error != nil {
-					log.Printf("[alerts] 保留期清理失败: %v", res.Error)
+					log.Printf("%s 保留期清理失败: %v", logPrefix, res.Error)
 					return
 				}
 				if res.RowsAffected < 10000 {

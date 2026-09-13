@@ -33,11 +33,11 @@ func newSourceSpec() *DomainSpec {
 	}
 }
 
-// TestRandomMACAddrFormatAndUniqueness 验证 MAC 生成器的格式与碰撞概率。
-func TestRandomMACAddrFormatAndUniqueness(t *testing.T) {
+// TestRandomMACFormatAndUniqueness 验证 MAC 生成器的格式与碰撞概率。
+func TestRandomMACFormatAndUniqueness(t *testing.T) {
 	seen := make(map[string]bool, 500)
 	for i := 0; i < 500; i++ {
-		mac, err := randomMACAddr()
+		mac, err := RandomMAC()
 		if err != nil {
 			t.Fatalf("生成 MAC 失败: %v", err)
 		}
@@ -51,10 +51,10 @@ func TestRandomMACAddrFormatAndUniqueness(t *testing.T) {
 	}
 }
 
-// TestRandomUUIDV4Format 验证 UUID 生成器符合 RFC 4122 v4。
-func TestRandomUUIDV4Format(t *testing.T) {
+// TestRandomUUIDFormat 验证 UUID 生成器符合 RFC 4122 v4。
+func TestRandomUUIDFormat(t *testing.T) {
 	for i := 0; i < 100; i++ {
-		uuid, err := randomUUIDV4()
+		uuid, err := RandomUUID()
 		if err != nil {
 			t.Fatalf("生成 UUID 失败: %v", err)
 		}

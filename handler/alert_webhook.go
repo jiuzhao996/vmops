@@ -64,13 +64,13 @@ func (h *AlertWebhookHandler) Handle(c *gin.Context) {
 	body, err := io.ReadAll(io.LimitReader(c.Request.Body, webhookBodyLimit))
 	if err != nil {
 		log.Printf("[alert-webhook] 读取请求体失败: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "请求体读取失败"})
+		Fail(c, http.StatusBadRequest, "请求体读取失败")
 		return
 	}
 	var payload amWebhookPayload
 	if err := json.Unmarshal(body, &payload); err != nil {
 		log.Printf("[alert-webhook] payload JSON 解析失败: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "payload 格式非法"})
+		Fail(c, http.StatusBadRequest, "payload 格式非法")
 		return
 	}
 
@@ -78,11 +78,7 @@ func (h *AlertWebhookHandler) Handle(c *gin.Context) {
 	for _, a := range alerts {
 		h.upsert(a) // 失败只记日志，不影响整体 200
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"code":    200,
-		"message": "ok",
-		"data":    gin.H{"received": len(payload.Alerts), "stored": len(alerts)},
-	})
+	Created(c, "ok", gin.H{"received": len(payload.Alerts), "stored": len(alerts)})
 }
 
 // checkToken 令牌校验：Token 为空=公开；非空时要求 ?token= 或 Authorization: Bearer 匹配。

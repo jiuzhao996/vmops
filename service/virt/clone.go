@@ -131,9 +131,10 @@ func (v *Virt) lookupVolPool(volPath string) (poolName, volName string, err erro
 	return "", "", fmt.Errorf("未找到卷 %s 所属存储池", volPath)
 }
 
-// randomUUIDV4 生成一个符合 RFC 4122 的 v4 UUID 字符串。
-// 参照 handler/vm.go randomUUID 思路，但 virt 层自实现小函数，避免跨层依赖。
-func randomUUIDV4() (string, error) {
+// RandomUUID 生成一个符合 RFC 4122 的 v4 UUID 字符串。
+// 全平台统一从这里取 UUID/MAC：handler 与 service/tasks 原先各有一份逐字相同的
+// 拷贝，已收归本层导出（virt 是最底层，handler/tasks 本就依赖它，反向才需要自实现）。
+func RandomUUID() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
@@ -149,11 +150,11 @@ func randomUUIDV4() (string, error) {
 	), nil
 }
 
-// randomMACAddr 生成一个 KVM 保留前缀（52:54:00）的随机 MAC 地址。
+// RandomMAC 生成一个 KVM 保留前缀（52:54:00）的随机 MAC 地址。
 // 前缀与 libvirt/QEMU 自动分配的保持一致，避免与物理网卡厂商 OUI 冲突。
-// 克隆整机时必须为每块网卡重新生成：MAC 沿用源机会导致同网段地址冲突，
+// 克隆整机/添加网卡时必须重新生成：MAC 沿用源机会导致同网段地址冲突，
 // 两台机器同时开机后 ARP 表错乱、网络双双不可用。
-func randomMACAddr() (string, error) {
+func RandomMAC() (string, error) {
 	b := make([]byte, 3)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
@@ -184,7 +185,7 @@ func systemDiskIndex(source *DomainSpec) int {
 //
 // diskIdx 为系统盘下标，newDiskPath 为已克隆好的子卷路径，srcDiskPath 为父盘路径（仅记录展示）。
 func buildCloneSpec(source *DomainSpec, newName string, diskIdx int, newDiskPath, srcDiskPath string) (*DomainSpec, error) {
-	uuid, err := randomUUIDV4()
+	uuid, err := RandomUUID()
 	if err != nil {
 		return nil, fmt.Errorf("生成新 UUID 失败: %w", err)
 	}
@@ -203,7 +204,7 @@ func buildCloneSpec(source *DomainSpec, newName string, diskIdx int, newDiskPath
 	spec.Interfaces = make([]InterfaceSpec, len(source.Interfaces))
 	copy(spec.Interfaces, source.Interfaces)
 	for i := range spec.Interfaces {
-		mac, err := randomMACAddr()
+		mac, err := RandomMAC()
 		if err != nil {
 			return nil, fmt.Errorf("生成克隆网卡 MAC 失败: %w", err)
 		}

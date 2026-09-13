@@ -592,7 +592,7 @@ func TestRandomMAC(t *testing.T) {
 	const n = 500
 	seen := make(map[string]bool, n)
 	for i := 0; i < n; i++ {
-		mac, err := randomMAC()
+		mac, err := virt.RandomMAC()
 		if err != nil {
 			t.Fatalf("第 %d 次生成失败: %v", i, err)
 		}
@@ -616,7 +616,7 @@ func TestRandomUUID(t *testing.T) {
 	const n = 500
 	seen := make(map[string]bool, n)
 	for i := 0; i < n; i++ {
-		uuid, err := randomUUID()
+		uuid, err := virt.RandomUUID()
 		if err != nil {
 			t.Fatalf("第 %d 次生成失败: %v", i, err)
 		}

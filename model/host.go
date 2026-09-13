@@ -25,7 +25,6 @@ type Host struct {
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
-	VMs         []VM           `gorm:"foreignKey:HostID" json:"vms,omitempty"`
 }
 
 // TableName 指定表名

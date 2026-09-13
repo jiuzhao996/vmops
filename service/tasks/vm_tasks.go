@@ -10,8 +10,6 @@
 package tasks
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -129,32 +127,6 @@ var taskVMNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 // validateVMName 校验虚拟机名称合法性（copy 自 handler/vm.go，tasks 包内自实现）。
 func validateVMName(name string) bool {
 	return taskVMNameRegex.MatchString(name)
-}
-
-// randomMAC 生成一个 52:54:00:xx:xx:xx 格式的 KVM 默认 MAC 地址（copy 自 handler/vm.go）。
-func randomMAC() (string, error) {
-	b := make([]byte, 3)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("52:54:00:%02x:%02x:%02x", b[0], b[1], b[2]), nil
-}
-
-// randomUUID 生成一个符合 RFC 4122 的 v4 UUID 字符串（copy 自 handler/vm.go）。
-func randomUUID() (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%s-%s-%s-%s-%s",
-		hex.EncodeToString(b[0:4]),
-		hex.EncodeToString(b[4:6]),
-		hex.EncodeToString(b[6:8]),
-		hex.EncodeToString(b[8:10]),
-		hex.EncodeToString(b[10:16]),
-	), nil
 }
 
 // strParam 从 payload 安全取字符串（类型断言带 ok，缺失/类型不符返回 false）。
@@ -488,11 +460,11 @@ func execCreateVM(ctx *ExecContext) error {
 	}
 
 	// 生成 UUID 与首个网卡 MAC。
-	uuid, err := randomUUID()
+	uuid, err := virt.RandomUUID()
 	if err != nil {
 		return fmt.Errorf("生成虚拟机 UUID 失败: %w", err)
 	}
-	firstMAC, err := randomMAC()
+	firstMAC, err := virt.RandomMAC()
 	if err != nil {
 		return fmt.Errorf("生成虚拟机 MAC 失败: %w", err)
 	}
@@ -641,7 +613,7 @@ func execCreateVM(ctx *ExecContext) error {
 				}
 			}
 			if interfaces[i].MAC == "" {
-				m, err := randomMAC()
+				m, err := virt.RandomMAC()
 				if err != nil {
 					cleanup()
 					return fmt.Errorf("生成网卡 MAC 失败: %w", err)
@@ -903,7 +875,7 @@ func execCloneVM(ctx *ExecContext) error {
 		}
 	}
 	if uuid == "" {
-		uuid, err = randomUUID()
+		uuid, err = virt.RandomUUID()
 		if err != nil {
 			return fmt.Errorf("生成虚拟机 UUID 失败: %w", err)
 		}
@@ -977,11 +949,11 @@ func execCloneImageVM(ctx *ExecContext) error {
 	}
 	reportProgress(ctx, 10, "开始基于镜像创建虚拟机")
 
-	uuid, err := randomUUID()
+	uuid, err := virt.RandomUUID()
 	if err != nil {
 		return fmt.Errorf("生成虚拟机 UUID 失败: %w", err)
 	}
-	mac, err := randomMAC()
+	mac, err := virt.RandomMAC()
 	if err != nil {
 		return fmt.Errorf("生成虚拟机 MAC 失败: %w", err)
 	}
