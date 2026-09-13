@@ -53,7 +53,7 @@ func (m *Manager) Register(taskType string, fn Executor)
 func (m *Manager) Submit(taskType, title string, payload interface{}, userID *uint, username, vmName string, vmID *uint) (*model.Task, error)
 // Submit：payload 序列化 JSON 存 Payload，Status=pending 入库后交 enqueue 有界入队（见下）。
 func (m *Manager) Get(id uint) (*model.Task, error)
-func (m *Manager) List(limit int, status string) ([]model.Task, error) // 按 id desc，status 为空查全部
+func (m *Manager) ListPaged(page, pageSize int, status string) ([]model.Task, int64, error) // 真分页（total 为 Count 真值），按 id desc，status 为空查全部；旧 Manager.List 已删
 ```
 
 ### 入队策略（有界等待，勿回退）
@@ -110,7 +110,7 @@ func RegisterVMTasks(m *Manager) // 注册 create_vm / delete_vm / clone_vm / cl
 - **clone_vm**：payload `{source_id,name,storage_pool,vcpu,memory_mb,network}`。从 CloneVM 搬运：查源→GetDomainSpec→覆盖→CloneVMFromSpec（Report 50，**内部重生成 UUID 与全部网卡 MAC**）→回读新域 UUID/MAC 同步进 DB→写 DB。Result=`{"vm_id":id}`。
 - **clone_image_vm**：payload `{image_id,name,storage_pool,vcpu,memory_mb,network,cloud_init?}`。从 `handler/image.go CloneVM` 搬运：查镜像→LookupVolByPath→CloneVolumeFromVol（Report 40）→seed（Report 70）→define→DB。Result=`{"vm_id":id}`。
 - **stop_vm**：payload `{vm_id}`。从 StopVM 搬运：ShutdownDomain→轮询 15s（每秒 Report 10+i*5）→超时 DestroyDomain→DB 置 shut off。Result=`{"vm":name}`。
-- 通用：executor 内**禁止**引用 gin/handler；错误返回 `fmt.Errorf("中文: %w", err)`；payload 字段缺失返回中文参数错误；所有 `h.DB/h.Virt` 改为 `ctx.DB/ctx.Virt`；`randomUUID/randomMAC/validateVMName` 在 tasks 包内自实现小函数（copy 逻辑，勿跨包引用 handler 未导出函数）；未指定存储池时统一取包内常量 `defaultStoragePool = "vmops"`（与 `model.VM.StoragePool` 的 gorm 默认值一致），勿再散落字面量。
+- 通用：executor 内**禁止**引用 gin/handler；错误返回 `fmt.Errorf("中文: %w", err)`；payload 字段缺失返回中文参数错误；所有 `h.DB/h.Virt` 改为 `ctx.DB/ctx.Virt`；`randomUUID/randomMAC/validateVMName` 在 tasks 包内自实现小函数（copy 逻辑，勿跨包引用 handler 未导出函数）；未指定存储池时经 `tasks.DefaultStoragePoolResolver` 读取（系统设置 `default_storage_pool`，未接线时兜底常量 `vmops`，与 `model.VM.StoragePool` 的 gorm 默认值一致），勿再散落字面量。
 
 ### Task.Result 字段一览（P2 新增 `kept_volumes`）
 
@@ -142,7 +142,7 @@ func RegisterVMTasks(m *Manager) // 注册 create_vm / delete_vm / clone_vm / cl
 - 命中守卫时写日志 `[tasks] 保留卷（未删）vm=.. vol=.. 原因=..`，并把 `"<卷名>（<原因>）"` 追加进 `kept_volumes`。
 - 进度文案随之分叉：有保留卷时 Report 70 为 `磁盘清理完成（保留 N 个共享卷）`，否则仍为 `磁盘清理完成`。
 - 删卷失败不再静默：`DeleteVolume` 的错误会打日志 `[tasks] 删除卷失败 ...`（原为 `_ =` 丢弃）。
-- **已知取舍**：父盘守卫会导致「先删父机、再删子机」的顺序下，父盘文件残留在池里成为孤儿文件（已无任何域引用它）。这是刻意选择——宁可留一个垃圾文件，也不能损坏正在使用的虚拟机磁盘。孤儿卷清理列入后续工作。
+- **已知取舍**：父盘守卫会导致「先删父机、再删子机」的顺序下，父盘文件残留在池里成为孤儿文件（已无任何域引用它）。这是刻意选择——宁可留一个垃圾文件，也不能损坏正在使用的虚拟机磁盘。孤儿卷的清理入口已闭环（见上方 `cleanup_volumes` 行：复用同一套引用判定反向使用，零引用才删）。
 
 ## REST（handler/task.go + handler/vm.go + handler/image.go + main.go，T3 产出）
 
@@ -153,7 +153,7 @@ func RegisterVMTasks(m *Manager) // 注册 create_vm / delete_vm / clone_vm / cl
 | POST | `/api/vms/:id/clone` | 改异步：Submit(clone_vm)，202 `{task_id}` |
 | POST | `/api/images/:id/clone` | 改异步：Submit(clone_image_vm)，202 `{task_id}` |
 | POST | `/api/vms/:id/stop` | 改异步：Submit(stop_vm)，202 `{task_id}`（根治 15s 超时） |
-| GET | `/api/tasks` | 列表 `?status=&limit=`（默认 50），返回 `{total, items}`（items 不含 payload） |
+| GET | `/api/tasks` | 列表 `?page=&page_size=&status=` 真分页（`total` 为 Count 真值；旧 `limit` 参数兼容，等价 page_size），返回 `{total, items}`（items 不含 payload） |
 | GET | `/api/tasks/:id` | 单个任务（含 result/error，不含 payload） |
 | DELETE | `/api/tasks/:id` | 仅允许删除 finished（success/failed）的记录 |
 

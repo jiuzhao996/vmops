@@ -77,9 +77,10 @@ func paramID(c *gin.Context, name string) (uint, bool) // 失败时已写好 400
 
 | 接口 | 非法 ID 响应 | 解析方式 |
 |---|---|---|
-| `DELETE /api/users/:id` | 400 `无效的用户ID` | `fmt.Sscanf(id, "%d", ...)` |
 | `GET`/`DELETE /api/tasks/:id` | 400 `任务 ID 不合法` | `strconv.ParseUint` |
 | `POST /api/sessions/:id/disconnect` | 400 `参数错误` | `strconv.ParseUint` |
+
+> 曾列于此的 `DELETE /api/users/:id`（原 `fmt.Sscanf`）已改走 `paramID`，文案统一为 400 `ID 参数非法`。
 
 ## 核心模型：DomainSpec（service/virt/spec.go，B1 产出）
 
@@ -167,7 +168,8 @@ func (v *Virt) SetMemory(domain string, mb int) error             // live+config
 func (v *Virt) PauseDomain(domain string) error                   // DomainSuspend
 func (v *Virt) ResumeDomain(domain string) error                  // DomainResume
 func (v *Virt) SetAutostart(domain string, enabled bool) error    // DomainSetAutostart
-func (v *Virt) GetAutostart(domain string) (bool, error)
+// 注：autostart 的读取不设独立包装（virt.GetAutostart 已删，冗余死代码），
+// GetDomainSpec 内部经 DomainGetAutostart 回填 spec.Autostart。
 ```
 
 ## 快照增强（B2，service/virt/snapshot.go 改造）
@@ -298,14 +300,19 @@ func (v *Virt) UpdateNetwork(name, xml string) error        // 停→net-undefin
 | POST | `/api/vms/:id/pause` | 暂停 |
 | POST | `/api/vms/:id/resume` | 恢复 |
 | POST | `/api/vms/:id/devices/disks` | body `{disk: DiskSpec}`，热插拔 |
-| DELETE | `/api/vms/:id/devices/disks/:target` | 移除磁盘 |
+| POST | `/api/vms/:id/devices/disks/quick` | **新增（设备批次）** 一键添加磁盘：建 qcow2 卷（卷名 `<vm名>-dN` 顺延跳重名）+ 热挂载合一，失败回滚建卷 |
+| POST | `/api/vms/:id/devices/standard` | **新增（设备批次）** 幂等补齐标准设备（guest-agent 通道 org.qemu.guest_agent.0 + virtio-rng）；存在性解析在 `virt.domainDevicePresence` |
+| DELETE | `/api/vms/:id/devices/disks/:target` | 移除磁盘。**可选 query `delete_volume=true`**：分离成功后同时删除对应存储卷（默认 false = 仅分离，行为不变）。删除走四重守卫（镜像库登记 / backing 父盘 / 仍被他机挂载 / cdrom 共享介质不删），响应 `{vm, target, volume_deleted, keep_reason}`：`volume_deleted=false` 且 `keep_reason` 非空即「仅分离、卷被保留」及中文原因 |
 | POST | `/api/vms/:id/devices/interfaces` | body `{interface: InterfaceSpec}` |
 | DELETE | `/api/vms/:id/devices/interfaces/:mac` | 移除网卡 |
 | PUT | `/api/vms/:id/cpu` | body `{vcpu}` |
 | PUT | `/api/vms/:id/memory` | body `{memory_mb}` |
 | PUT | `/api/vms/:id/autostart` | body `{enabled}` |
-| PUT | `/api/vms/:id/boot` | body `{devices: []}` |
 | GET | `/api/vms/:id/stats` | 性能页轮询，返回 VmStats |
+| GET | `/api/vms/:id/stats-history` | **新增（历史曲线）** Prometheus `query_range` 回放（step=15s），返回 `{points:[{t:"HH:MM:SS",cpu,mem}]}`；解析时跳过 NaN/Inf（VM 关机瞬间 0/0） |
+
+> 已删除接口：`PUT /api/vms/:id/boot`（引导顺序设置）——前端引导顺序面板已撤销、路由与 handler 一并删除；
+> 请求会落到 SPA 兜底返回 HTML。XML 层面的 `<boot dev=.../>` 生成/解析能力在 `BuildDomainXML/ParseDomainXML` 保留（建机时按规格写入），仅无独立设置端点。
 
 ### 创建 / 向导 / 克隆
 | Method | Path | 说明 |
@@ -326,9 +333,11 @@ func (v *Virt) UpdateNetwork(name, xml string) error        // 停→net-undefin
 | Method | Path | 说明 |
 |---|---|---|
 | POST | `/api/images/upload` | 增加 form 字段 `pool`（默认 `img`）；上传为池卷（StorageVolCreateXML 或文件方式落到池路径）+ DB 记录 |
+| POST | `/api/images/register` | **新增（存储板块批次）** 登记既有存储池卷为云镜像；同路径已登记返回 409，软删记录可恢复 |
 | PUT | `/api/images/:id/template` | body `{is_template}` 标记模板 |
 | GET | `/api/images` | `?is_template=true` 已有 |
-| GET | `/api/storage/pools` | 已有（创建向导用） |
+| GET | `/api/storage/pools` | 已有（创建向导用）；响应扩展 `seed_dir/default_pool/pool_roles` |
+| PUT | `/api/storage/pools/:name/meta` | **新增（存储板块批次）** 平台侧池元数据 `{role, description}`（libvirt 池 XML 无此语义；role 空时按名称/路径自动推断） |
 
 ### 网络 / 仪表盘 / 审计
 | Method | Path | 说明 |
@@ -344,7 +353,9 @@ func (v *Virt) UpdateNetwork(name, xml string) error        // 停→net-undefin
 
 **已下线的旧接口（勿再调用，路由已删，请求会落到 SPA 兜底返回 HTML）**：
 `GET /api/host`（GetHostInfo，被 /api/dashboard/host-stats + host-history 取代）、
-`GET /api/vms/:id/detail`（GetVMDetail 聚合接口，被 /spec + /stats + stats-history 取代）。
+`GET /api/vms/:id/detail`（GetVMDetail 聚合接口，被 /spec + /stats + stats-history 取代）、
+`PUT /api/vms/:id/boot`（引导顺序设置，前端面板撤销后整链路删除）、
+`GET /api/audit/:id`（GetAuditLog，前后端零消费者）。
 前端 api/index.js 同步删除死封装 getVMDetail/updateVMSpec/getImage（PUT /vms/:id/spec 后端保留，属文档化能力）。
 
 | Method | Path | 角色 | 说明 |
@@ -374,6 +385,17 @@ Result schema 见 docs/task-contract.md（pool/deleted/kept）。前端 StorageL
 `vnc_token_ttl_min` → `vnc.TTLResolver`（原 token.go 硬编码 5min）；
 `vnc_stale_min` → `console.StaleAfterResolver`（原 registry.go 硬编码 60min）。
 三个 resolver 均有未接线兜底默认值，测试依赖这一行为。 |
+
+### 监控闭环与仪表盘扩展（监控闭环批次新增）
+
+| Method | Path | 角色 | 说明 |
+|---|---|---|---|
+| POST | `/api/monitor/webhook` | 公开（env `ALERT_WEBHOOK_TOKEN` 可选 Bearer/`?token=` 鉴权） | **新增** Alertmanager 告警网关：按 fingerprint 去重 upsert 入 `alerts` 表；**除 401/400 外恒回 200**（非 2xx 会触发 AM 重试轰炸）；配套告警保留期后台清理 |
+| GET | `/api/monitor/alerts/history` | 登录即可 | **新增** 告警历史分页查询（`status`/`fingerprint` 过滤 + `page`/`page_size`） |
+| GET | `/api/monitor/file-sd` | 登录即可 | **新增** file_sd 抓取目标预览，响应 `{enabled, items}`（enabled=FILE_SD_PATH 是否配置）；生成逻辑在 `service/monitor`（running 且已知 IP 的 VM → `ip:9100`，同 IP 去重） |
+| GET | `/api/monitor/grafana-status` | 登录即可 | **新增** Grafana 探活（探 `{GRAFANA_URL}/grafana/api/health` 再退化 `/api/health`，禁跟随重定向）；前端据此亮「未连接」兜底层 |
+| GET | `/api/dashboard/capacity` | operator+ | **新增** 资源容量/超分：`{vm_count, allocated_vcpu, allocated_mem_mb, physical_cores, physical_mem_mb, cpu_ratio, mem_ratio, has_host}`；物理量读本机（runtime.NumCPU + /proc/meminfo），hosts 表数值仅兜底 |
+| GET | `/api/dashboard/host-history`、`/api/dashboard/vm-history` | operator+ | **新增** 历史曲线（宿主机大盘 / 全部 VM 批量迷你图预填），经 `PROMETHEUS_URL` 调 `query_range`（step=15s）；解析跳过 NaN/Inf 点 |
 
 ### 控制台三入口与只读角色（P1 变更）
 
@@ -469,12 +491,14 @@ IP 由 DHCP 动态分配、重建即换主机密钥，维护 known_hosts 不具�
 |---|---|---|
 | `POST /api/networks/xml`、`PUT /api/networks/:name` | 接受调用方原始 XML 直接 `net-define`，未做结构校验 | admin 可定义任意 libvirt 网络（viewer 已被 403 拦住） |
 | `PUT /api/vms/:id/xml` | 同上，接受原始 domain XML | 同上 |
-| `GET /metrics` | 公开无鉴权（Prometheus 抓取需要） | 泄漏 VM 名与资源指标，需靠防火墙限制来源 |
-| `POST /api/auth/login` | 无失败次数限流 / 验证码 | 可离线爆破弱口令 |
-| CORS | `CORS_ORIGINS` 默认 `*` | 生产需收敛为具体来源 |
+| `GET /metrics` | 未设置 `METRICS_TOKEN` 时公开（启动日志有提示）；设置后要求 Bearer/`?token=` 认证 | 生产建议开启令牌或以防火墙限制来源网段 |
+| `POST /api/auth/login` | ✅ 已限流（同 IP 1 分钟 5 次失败锁定，`handler/auth.go loginLimiter`）+ 无验证码 | 残余：无验证码，可换 IP 分布式爆破 |
+| CORS | `CORS_ORIGINS` 默认 `*`（release 模式下为 `*` 拒绝启动） | 生产需收敛为具体来源 |
 | Web 终端 `HostKeyCallback` | `InsecureIgnoreHostKey()` | 目标已限定私有网段，残余中间人风险 |
 | `golangci-lint` | 本机未安装，`.golangci.yml` 已就位但深度 lint 未执行；且该配置为 v1 schema，装 v2.x 会因字段改名（`linters-settings` → `linters.settings` 等）报错 | 静态检查覆盖不完整（`go build`/`go vet`/`gofmt` 已过） |
-| 孤儿卷 | 「先删父机、再删子机」顺序下，被父盘守卫保留的卷会残留为无人引用的孤儿文件，无自动清理入口 | 占存储空间。刻意取舍：宁可留垃圾文件也不能损坏在用磁盘 |
 | 状态字面量 | `service/tasks/vm_tasks.go` 仍有 5 处 `"shut off"` 字面量未换成 `model.VMStatusShutOff` | 一致性隐患，当前行为正确 |
 | `POST /api/vms/import` 的 `errors` | 后端已按「域名 + 中文原因」返回，但前端 `VmList.vue` 只读 `imported`/`skipped`/`failed` | 单台导入失败时用户看不到具体原因 |
-| 多宿主机 | `hosts.libvirt_uri` 已入库、已在设置页展示，但**从未用于建立连接**；`virt.New()` 固定 `libvirt.QEMUSystem`（`qemu:///system`） | 多宿主机纳管目前是空壳，只有运行后端的这台机器真实可管 |
+| 多宿主机 | 多宿主机纳管空壳已砍除（`hosts.libvirt_uri` 字段已删），宿主机模块定位为「登记与状态采集」；`virt.New()` 固定 `libvirt.QEMUSystem`（`qemu:///system`），仅运行后端的这台机器真实可管 | 跨宿主机虚拟化操作（`qemu+ssh://` 等）列为后续工作 |
+
+> 曾列于此的「孤儿卷无自动清理入口」已闭环：`POST /api/storage/pools/:name/orphan-cleanup`（见上文
+> 「孤儿卷清理」段），本表不再保留该行。

@@ -31,10 +31,11 @@ Logo 一笔三义：**波浪线既是终端的家目录符 `~`，也是海面**�
 - [x] 认证与授权（JWT + bcrypt + admin/viewer 角色 + 修改密码）
 - [x] RBAC 第一阶段（**viewer 完全只读**：读接口放行 + 图形控制台只读观看；变更操作、SSH 终端、串口控制台一律 403，前端按钮级隐藏）
 - [x] 宿主机管理（纳管 / 连通性测试回写状态 / /proc 实时状态 + 中文时长）
-- [x] 虚拟机生命周期（卡片列表 / 详情 / 真实 KVM 建机 / 启停重启 / 暂停恢复 / 删除带存储清理）
+- [x] 虚拟机生命周期（卡片列表 / 详情 / 真实 KVM 建机 / 启停重启 / 暂停恢复 / 删除带存储清理；IP 经 DHCP 租约 + qemu-guest-agent 双通道自动回填）
 - [x] **异步任务系统**（创建/删除/克隆/优雅关机走后台 worker，202 + 轮询，任务中心可见；入队有界 + 两层 panic 兜底）
-- [x] **创建向导**（ISO / 导入磁盘 / 云镜像+cloud-init / 克隆四模式 + 汇总页）
-- [x] **硬件热管理**（磁盘/网卡热插拔、调核/调内存、自启、引导顺序、XML 双通道编辑）
+- [x] **创建向导**（四步：安装方式 → 计算资源 → 磁盘与网络 → 确认创建；三种安装方式：本地 ISO（介质平铺选择 + 按 ISO 文件名自动识别操作系统）/ 云镜像 + cloud-init / 克隆现有 VM）
+- [x] **向导云镜像方式**（前置条件检查与直达链接、存储池可用空间显示与超额红字预警、增量盘标注（qcow2 backing 不复制镜像文件）、cloud-init 折叠配置（主机名/用户/密码/SSH 公钥/网络模式）、网络按 forward 类型分组）
+- [x] **硬件热管理**（磁盘/网卡热插拔、一键建盘挂载与补齐标准设备（guest-agent 通道 + virtio-rng）、调核/调内存、自启、整域 XML 编辑）
 - [x] **增量克隆**（真 linked clone：子卷 XML 声明 `<backingStore>` 指向父盘，等价 `qemu-img create -f qcow2 -F qcow2 -b`，`qemu-img info` 可见 `backing file`；克隆机 UUID 与**每块网卡 MAC** 均重新生成）
 - [x] **删除保护**（三重守卫：池外文件 / 镜像库登记的共享基镜像 / 仍被子卷依赖的增量克隆父盘一律不删，保留的卷经任务结果 `kept_volumes` 与服务端日志给出中文原因）
 - [x] **cloud-init**（纯 Go 生成 seed ISO，用户/密码/SSH key/静态 IP）
@@ -43,16 +44,17 @@ Logo 一笔三义：**波浪线既是终端的家目录符 `~`，也是海面**�
 - [x] 网页控制台（admin 三入口：VNC 图形 / SSH 终端 / 免 IP 串口；viewer 仅 VNC 只读；页内一键开机闭环；SSH 参数记忆）
 - [x] **控制台会话跟踪**（谁连了哪台 VM，SSH/串口可服务端强制断开；WS 写入经 `console.Conn` 串行化）
 - [x] 快照管理（名称+描述 / 列表含时间状态 / 删除 / 回滚）
-- [x] 镜像管理（上传到池 / 模板标记 / 基于模板 linked clone 建机）
-- [x] 审计日志（中间件自动写入 + 用户名回填 + 查询 / 详情 / 操作类型分布）
-- [x] 仪表盘（总览计数 + 状态分布 + 宿主机实时大盘 + VM 实时表）
-- [x] VM 列表实时化（卡片 + CPU/内存迷你折线 + 搜索筛选 + 批量操作）
-- [x] 任务中心 / 会话管理 / 系统设置页（生效配置快照 + 轮询偏好）
-- [x] **Prometheus 监控**（内建 `/metrics`：VM/宿主机/存储池/任务指标 + 5 告警规则 + Grafana 9 面板）
+- [x] 镜像管理（上传到池 / 既有池卷登记 / 模板标记 / 基于模板 linked clone 建机；页面双 tab：云镜像/模板盘 + ISO 安装镜像只读展示（管理在存储池页），带来源存储池标注）
+- [x] 审计日志（中间件自动写入 + 用户名回填 + 多条件查询 / 操作类型分布；审计中心以双 tab 承载操作日志与控制台会话）
+- [x] 仪表盘（概览/监控双 tab：总览计数、状态分布、宿主机实时大盘、资源容量/超分卡、历史性能曲线（Prometheus query_range 回放，刷新不清零）；监控 tab 复用监控中心）
+- [x] VM 列表实时化（卡片 + CPU/内存迷你折线 + 搜索筛选 + 批量电源（状态不一致时禁用）与删除）
+- [x] 任务中心（任务详情抽屉解析 `kept_volumes`）/ 审计中心（操作日志 + 会话双 tab）/ 系统设置（可写运行参数，保存即生效；只读快照移至仪表盘「平台信息」卡）/ 个人中心 / 用户管理
+- [x] **Prometheus 监控**（内建 `/metrics`：VM/宿主机/存储池/任务指标 + 9 告警规则 + Grafana 双看板（宿主机 5 面板 / 虚拟机 6 面板）；监控中心含实时告警、webhook 告警历史、file_sd 抓取目标预览、Grafana 探活兜底）
 - [x] 存量 VM 导入 / 纳管
+- [x] **监控闭环**（Prometheus file_sd 服务发现自动下发 running 且已知 IP 的 VM 目标；Alertmanager webhook 告警网关按 fingerprint 去重入库 + 分页历史；`vms.ip` DHCP 租约 + QGA 双通道回填）
 - [x] **安全加固**（路径参数主键统一解析防 SQL 注入 / libvirt XML 全部走 `encoding/xml` / JWT 锁定 HS256 / SSH 目标白名单 / release 密钥强校验）
 - [x] E2E 回归脚本（`scripts/smoke.sh`，23 项断言）
-- [x] 单元测试（140 个顶层测试函数 / 约 950 个子用例 / 7 个包，`go test -race ./...` 全通过；纯函数目标覆盖率基本 100%）
+- [x] 单元测试（138 个顶层测试函数 / 约 950 个子用例 / 7 个包，`go test -race ./...` 全通过；纯函数目标覆盖率基本 100%）
 - [x] 前端工程化（路由懒加载 + manualChunks 分包：首屏下载量 −50%；`utils/format.js` 收敛 10 余处重复；图标全部换成 `@element-plus/icons-vue`）
 
 
@@ -156,7 +158,7 @@ docker compose up -d prometheus grafana alertmanager
 
 ```bash
 ./scripts/smoke.sh          # E2E 23 项：只读接口 + metrics + 创建/删除 task 全链路 + 硬件管理
-go test -race ./...         # 单元测试 140 个顶层函数 / 约 950 子用例 / 7 个包（必须带 -race）
+go test -race ./...         # 单元测试 138 个顶层函数 / 约 950 子用例 / 7 个包（必须带 -race）
 go build ./... && go vet ./... && gofmt -l .
 ```
 
@@ -226,10 +228,12 @@ websockify 回调 `/api/vnc/token/:token` 外均需在 `Authorization: Bearer <t
 - `POST /api/vms/:id/clone`（202 task，增量克隆；新机 UUID 与全部网卡 MAC 重新生成）
 - `GET  /api/vms/:id/spec` — 完整配置模型（含 raw_xml）
 - `PUT  /api/vms/:id/spec` — 整体重定义（停机）
-- `PUT  /api/vms/:id/cpu` `PUT /api/vms/:id/memory` `PUT /api/vms/:id/autostart` `PUT /api/vms/:id/boot`
-- `POST /api/vms/:id/devices/disks` `DELETE /api/vms/:id/devices/disks/:target` — 磁盘热插拔
+- `PUT  /api/vms/:id/cpu` `PUT /api/vms/:id/memory` `PUT /api/vms/:id/autostart`
+- `POST /api/vms/:id/devices/disks` `POST /api/vms/:id/devices/disks/quick`（建 qcow2 卷 + 热挂载合一） `DELETE /api/vms/:id/devices/disks/:target?delete_volume=`（默认仅分离；`delete_volume=true` 分离并删除存储卷，受镜像库/backing 父盘/他机挂载/cdrom 四重守卫保护，响应含 `volume_deleted`/`keep_reason`）
 - `POST /api/vms/:id/devices/interfaces` `DELETE /api/vms/:id/devices/interfaces/:mac` — 网卡热插拔
+- `POST /api/vms/:id/devices/standard` — 幂等补齐标准设备（guest-agent 通道 + virtio-rng）
 - `GET  /api/vms/:id/stats` — 实时性能（CPU/内存/磁盘/网络）
+- `GET  /api/vms/:id/stats-history` — 历史性能曲线（Prometheus query_range，详情页大图）
 - `GET  /api/vms/:id/xml` `PUT /api/vms/:id/xml` — XML 查看/编辑
 - 快照：`GET /api/vms/:id/snapshots`（名称/描述/时间/状态） `POST /api/vms/:id/snapshots`（`{name, description}`） `DELETE /api/vms/:id/snapshots/:snap` `POST .../revert`
 - `POST /api/vms/:id/vnc-token` — noVNC token（viewer 可用，响应含 `view_only`：非 admin 为 `true`，前端以 noVNC 只读模式打开）
@@ -240,29 +244,40 @@ websockify 回调 `/api/vnc/token/:token` 外均需在 `Authorization: Bearer <t
 
 - `GET /api/images`（`?is_template=true` 模板筛选） `GET /api/images/:id`
 - `POST /api/images/upload` — 上传到指定池（form：name/os_version/pool/file）
+- `POST /api/images/register` — 登记既有存储池卷为云镜像（同路径已登记返回 409，软删记录可恢复）
 - `PUT /api/images/:id/template` — 标记模板
 - `POST /api/images/:id/clone`（202 task，基于模板/云镜像增量克隆建机）
 - `DELETE /api/images/:id`
 
 ### 存储 / 网络
 
-- 存储池：`GET /api/storage/pools` `GET /api/storage/pools/:name`（含卷） `POST /api/storage/pools` `DELETE /api/storage/pools/:name`；卷：`POST /api/storage/pools/:name/volumes` `DELETE .../volumes/:vol`
+- 存储池：`GET /api/storage/pools`（响应含 seed_dir/default_pool/pool_roles） `GET /api/storage/pools/:name`（含卷，卷含 `backing_file`） `POST /api/storage/pools` `DELETE /api/storage/pools/:name`
+  - 池元数据：`PUT /api/storage/pools/:name/meta`（平台侧 role/description）
+  - 卷引用与保护：`GET /api/storage/pools/:name/volume-refs`（池级一次算全）；`DELETE .../volumes/:vol` 删除前算引用，任一命中返回 409 中文原因；`POST /api/storage/pools/:name/orphan-cleanup`（202 转 `cleanup_volumes` 任务，零引用才删）
+  - 卷：`POST /api/storage/pools/:name/volumes`
   - 建池 `path` 须为规范绝对路径（不含 `..`、无结尾斜杠、非根目录）；建卷 `format` 仅接受 `qcow2` / `raw`
-- 网络：`GET /api/networks` `GET /api/networks/:name`（含 XML/autostart/DHCP） `POST /api/networks` `POST /api/networks/xml` `PUT /api/networks/:name` `POST /api/networks/:name/start|stop` `DELETE /api/networks/:name`
+- 网络：`GET /api/networks` `GET /api/networks/:name`（含 XML/autostart/DHCP） `POST /api/networks` `POST /api/networks/xml` `PUT /api/networks/:name` `PUT /api/networks/:name/autostart` `POST /api/networks/:name/start|stop` `DELETE /api/networks/:name`
   - `POST /api/networks` 的 `gateway` 须为合法 IPv4；`POST /api/networks/xml` 与 `PUT /api/networks/:name` 仍接受原始 XML 直定义（admin 专属，尚未做结构校验）
 
 ### 任务 / 会话
 
-- `GET /api/tasks` `GET /api/tasks/:id` `DELETE /api/tasks/:id`（仅 finished 可删）
-- `GET /api/sessions` — 控制台会话（VNC/SSH/串口）
+- `GET /api/tasks`（`page`/`page_size` 真分页，旧 `limit` 兼容；`?status=` 筛选） `GET /api/tasks/:id` `DELETE /api/tasks/:id`（仅 finished 可删）
+- `GET /api/sessions`（`type`/`vm_name`/`username` 过滤 + `page`/`page_size` 真分页）
 - `POST /api/sessions/:id/disconnect` — 强制断开（SSH/串口；VNC 中转无法强断）
 
 ### 仪表盘 / 审计 / 设置 / 监控
 
 - `GET /api/dashboard/overview` `GET /api/dashboard/vm-status` `GET /api/dashboard/host-stats` `GET /api/dashboard/vm-perf`
-- `GET /api/audit`（action/object_type/username/status/日期/分页） `GET /api/audit/:id` `GET /api/audit/summary` `GET /api/audit/actions`
-- `GET /api/settings`（admin，生效配置快照）
-- `GET /metrics` — Prometheus exposition（公开，生产请防火墙限制）
+- `GET /api/dashboard/capacity` — 资源容量/超分（分配 vCPU/内存 vs 物理核/内存，超分比）
+- `GET /api/dashboard/host-history` `GET /api/dashboard/vm-history` — 历史曲线（Prometheus query_range，大盘与列表迷你图预填）
+- `GET /api/audit`（action/object_type/username/status/日期/分页） `GET /api/audit/summary` `GET /api/audit/actions`
+- `GET /api/settings`（admin，运行参数与快照） `PUT /api/settings`（admin，写库即生效）
+- `GET  /api/monitor/alerts` — 实时告警（代理 Alertmanager，AM 不可达 502）
+- `GET  /api/monitor/alerts/history` — 告警历史（webhook 入库，status/fingerprint 过滤 + 分页）
+- `GET  /api/monitor/file-sd` — file_sd 抓取目标预览（`{enabled, items}`）
+- `GET  /api/monitor/grafana-status` — Grafana 探活（前端据此亮「未连接」兜底层）
+- `POST /api/monitor/webhook` — Alertmanager 告警网关（公开路由，env `ALERT_WEBHOOK_TOKEN` 可选鉴权；按 fingerprint 去重入库）
+- `GET /metrics` — Prometheus exposition（env `METRICS_TOKEN` 非空时要求 Bearer/`?token=`，未设置保持公开）
 - `GET /api/health` — 健康检查
 
 ## 项目结构
@@ -281,7 +296,7 @@ vmops/
 │   │                    #   clone.go：增量克隆（backingStore）+ buildCloneSpec 纯函数（UUID/MAC 重生成）
 │   │                    #   storage.go：ListBackingRefs（父卷→子卷依赖表，删卷守卫用）
 │   │                    #   *_test.go：spec(13)/clone(8)/cloudinit(6)/storage(7)/network(4)/state(4)/snapshot(4)
-│   ├── tasks/           # 异步任务队列（4 worker + 5 executors，有界入队 + 两层 recover）
+│   ├── tasks/           # 异步任务队列（4 worker + 6 executors，有界入队 + 两层 recover）
 │   │                    #   manager_test.go(11)/vm_tasks_test.go(14)：panic 兜底/有界入队/payload 解析
 │   ├── console/         # 会话注册表（WS 持有/强制断开/VNC 映射/过期清扫）
 │   │                    #   conn.go：写锁串行化的 WS 包装 + conn_test.go（5 个 -race 用例）
@@ -289,7 +304,7 @@ vmops/
 │   └── vnc/             # VNC token 存储
 ├── scripts/             # init-db.sql / smoke.sh（E2E 回归）/ start-novnc.sh
 ├── deploy/              # prometheus.yml / alerts.yml / grafana 看板与 provisioning
-├── web/                 # Vue3 + Vite 前端（17 页面：Dashboard/Monitor/VmList/VmDetail/向导/Host/Image/Storage/Network/Task/Audit(含Session)/Settings/UserList/Profile/Console/Login）
+├── web/                 # Vue3 + Vite 前端（17 个视图：Dashboard(概览/监控双 tab+容量超分卡)/Monitor/VmList/VmDetail/向导/Host/Image(双 tab)/Storage/Network/Task/Audit+SessionList(双 tab)/Settings/UserList/Profile/Console/Login）
 │   ├── src/utils/format.js  # 状态文案/时间/尺寸/错误提取统一实现（收敛 10 余处重复）
 │   └── dist/            # 构建产物，由后端托管（路由懒加载 + manualChunks：首屏 −50%）
 └── docs/                # 设计 / 开发文档（含 api-contract / task-contract）
@@ -317,15 +332,14 @@ vmops/
 | 项 | 现状 | 影响面 |
 |---|---|---|
 | `POST /api/networks/xml`、`PUT /api/networks/:name`、`PUT /api/vms/:id/xml` | 接受调用方原始 XML 直接定义，无结构校验 | 仅 admin 可达 |
-| `GET /metrics` | 公开无鉴权（Prometheus 抓取需要） | 泄漏 VM 名与资源指标，需防火墙限制来源 |
+| `GET /metrics` | 未设置 `METRICS_TOKEN` 时公开（启动日志有提示）；设置后要求 Bearer/`?token=` 认证 | 生产建议开启令牌或以防火墙限制来源网段 |
 | `POST /api/auth/login` | ✅ 已限流（同 IP 1 分钟 5 次失败锁定）+ 无验证码 | 残余：无验证码，可换 IP 分布式爆破 |
-| CORS | `CORS_ORIGINS` 默认 `*` | 生产需收敛为具体来源 |
+| CORS | `CORS_ORIGINS` 默认 `*`（release 模式下为 `*` 拒绝启动） | 生产需收敛为具体来源 |
 | Web 终端 SSH | `HostKeyCallback` 为 `InsecureIgnoreHostKey()` | 目标已限私有网段，残余中间人风险 |
 | `golangci-lint` | 本机未安装，深度 lint 未执行 | 静态检查覆盖不完整（`go build`/`go vet`/`gofmt` 已过） |
-| 孤儿卷 | 「先删父机、再删子机」顺序下，被守卫保留的父盘会残留为无人引用的孤儿文件，无自动清理 | 占存储空间；刻意取舍——宁留垃圾文件也不能损坏在用磁盘 |
 | 状态字面量 | `service/tasks/vm_tasks.go` 仍有 5 处 `"shut off"` 字面量未换成常量 | 一致性隐患，行为正确 |
 | 导入失败原因 | `POST /api/vms/import` 响应的 `errors` 数组前端 `VmList.vue` 未消费（只读 `imported`/`skipped`/`failed`） | 单台导入失败时用户看不到具体原因 |
-| 多宿主机 | `hosts.libvirt_uri` 从未用于建立连接，`virt.New()` 固定 `qemu:///system` | 多宿主机纳管目前是空壳，仅本机真实可管 |
+| 多宿主机 | 多宿主机纳管空壳已砍除（`hosts.libvirt_uri` 字段已删），宿主机模块定位为「登记与状态采集」，虚拟化连接固定本机 `qemu:///system` | 跨宿主机虚拟化操作（`qemu+ssh://` 等）列为后续工作 |
 
 ## License
 
