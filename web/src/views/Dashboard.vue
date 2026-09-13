@@ -5,7 +5,10 @@
         <h2 class="page-title">仪表盘</h2>
         <span class="live-tag"><span class="live-dot" />实时监控 · 3s</span>
       </div>
-      <el-button :icon="Refresh" circle text @click="loadAll" />
+      <!-- icon-only 按钮必须带 tooltip（ui-ux-pro-max §1 aria-labels）；仅动模板，不碰 script/echarts -->
+      <el-tooltip content="刷新" placement="top">
+        <el-button :icon="Refresh" circle text aria-label="刷新" @click="loadAll" />
+      </el-tooltip>
     </div>
 
     <!-- 概览 / 监控 两个 tab：概览是状态摘要（含即时时序快照），监控收敛全部深度分析
@@ -269,7 +272,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, reactive } from 'vue'
-import * as echarts from 'echarts'
+import echarts from '../utils/echarts'
 import { ArrowRight, Refresh, Cpu, InfoFilled, Monitor, VideoPlay, FolderOpened, Connection, Picture, User, Document } from '@element-plus/icons-vue'
 import MonitorView from './Monitor.vue'
 import { api } from '../api'

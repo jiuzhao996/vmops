@@ -57,7 +57,7 @@
           <div class="pool-path mono" :title="pool.path">{{ pool.path }}</div>
           <div
             class="pool-desc"
-            :class="{ placeholder: !pool.description }"
+            :class="{ placeholder: !pool.description, editable: isAdmin }"
             :title="pool.description || '点击编辑添加描述'"
             @click.stop="openMeta(pool)"
           >
@@ -267,6 +267,8 @@ const poolRoles = ref([...FALLBACK_POOL_ROLES])
 const metaDialog = ref(false)
 const metaSaving = ref(false)
 const metaForm = ref({ name: '', role: '', description: '' })
+// 新建存储池弹窗（openCreatePool / createPool 控制）
+const poolDialog = ref(false)
 
 const volDrawer = ref(false)
 const volCreateDialog = ref(false)
@@ -673,6 +675,14 @@ onMounted(load)
 .pool-desc.placeholder {
   color: var(--color-muted-foreground);
   opacity: 0.7;
+}
+/* 可点描述行（admin 编辑入口）需要指针与 hover 反馈（ui-ux-pro-max §2 cursor-pointer/state-clarity）；
+   viewer 无编辑权限不加可点样式，避免"看起来能点点了没反应" */
+.pool-desc.editable {
+  cursor: pointer;
+}
+.pool-desc.editable:hover {
+  color: var(--el-color-primary);
 }
 .pool-stats {
   display: flex;

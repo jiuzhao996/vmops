@@ -3,7 +3,7 @@
     <div class="wizard-head">
       <el-button round :icon="ArrowLeft" @click="router.push({ name: 'vms' })">返回</el-button>
       <h2 class="wizard-title">创建虚拟机</h2>
-      <span class="wizard-sub">对齐 virt-manager 创建向导 · 支持 ISO / 导入磁盘 / 云镜像 cloud-init / 克隆</span>
+      <span class="wizard-sub">对齐 virt-manager 创建向导 · 支持 ISO / 云镜像 cloud-init / 克隆</span>
     </div>
 
     <!-- 前置条件检查：缺网络/安装源/存储池时给出引导链接，不让用户走到中途才发现卡住（基建先行） -->
@@ -78,7 +78,8 @@
               </el-option>
             </el-select>
             <div v-if="isoAutoDetected" class="os-hint" style="color: var(--el-color-success)">
-              ✓ 已根据 ISO 文件名自动识别为「{{ iso.osName }}」，识别错误可手动更改
+              <el-icon style="vertical-align: -2px"><CircleCheck /></el-icon>
+              已根据 ISO 文件名自动识别为「{{ iso.osName }}」，识别错误可手动更改
             </div>
           </el-form-item>
           <el-alert type="info" :closable="false" show-icon title="安装介质将挂载为只读光驱，系统安装到新建的系统盘中。列表覆盖全部激活存储池中的 ISO。" />
@@ -203,7 +204,8 @@
               <el-option v-for="p in usablePools" :key="p.name" :label="poolLabel(p)" :value="p.name" />
             </el-select>
             <div v-if="diskOverPool" class="os-hint" style="color: var(--el-color-danger)">
-              ⚠ 新系统盘 {{ form.diskGb }} GB 超出该池剩余空间（{{ poolAvailText(form.storagePool) }}），创建可能失败
+              <el-icon style="vertical-align: -2px"><WarningFilled /></el-icon>
+              新系统盘 {{ form.diskGb }} GB 超出该池剩余空间（{{ poolAvailText(form.storagePool) }}），创建可能失败
             </div>
           </el-form-item>
           <el-form-item label="机器类型">
@@ -248,7 +250,7 @@
             </el-table-column>
             <el-table-column v-if="diskRows.length > 1" label="操作" width="70" align="center">
               <template #default="{ row }">
-                <el-button v-if="!row.isSystem" size="small" type="danger" text :icon="Delete" @click="removeDisk(row)" />
+                <el-button v-if="!row.isSystem" size="small" type="danger" text :icon="Delete" title="移除该磁盘" aria-label="移除该磁盘" @click="removeDisk(row)" />
               </template>
             </el-table-column>
           </el-table>
@@ -282,7 +284,7 @@
             </el-option-group>
           </el-select>
           <span class="os-hint">{{ nicModel }} 模型</span>
-          <el-button v-if="nics.length > 1" size="small" type="danger" text :icon="Delete" @click="removeNic(idx)" />
+          <el-button v-if="nics.length > 1" size="small" type="danger" text :icon="Delete" title="移除该网卡" aria-label="移除该网卡" @click="removeNic(idx)" />
         </div>
       </div>
 
@@ -376,7 +378,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, ArrowRight, Check, Plus, Delete, Monitor, Cloudy, CopyDocument } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, Check, CircleCheck, Plus, Delete, Monitor, Cloudy, CopyDocument, WarningFilled } from '@element-plus/icons-vue'
 import { api } from '../api'
 import { fmtSizeBytes } from '../utils/format.js'
 import { useAuth } from '../store/auth'
@@ -427,7 +429,7 @@ const installModes = [
   { value: 'clone', icon: CopyDocument, label: '克隆现有 VM', desc: '从现有虚拟机创建链接克隆' }
 ]
 
-// 池→卷两级树：供 ISO / 现有磁盘的选择器直接点选，免手填绝对路径
+// 池→卷两级树：供 ISO 平铺列表扫描卷用（免手填绝对路径）
 const volumeTree = computed(() =>
   (options.storagePools || [])
     .filter((p) => p.volumes && p.volumes.length)
@@ -505,10 +507,25 @@ const networkGroups = computed(() => {
   }
   return Object.keys(groups).map((label) => ({ label, items: groups[label] }))
 })
+// 云镜像列表：镜像库里非 ISO 的登记卷（ISO 是安装介质，走存储池扫描，不属于这里）
+const cloudImageList = computed(() =>
+  (options.cloudImages || []).filter((i) => (i.format || '').toLowerCase() !== 'iso')
+)
 const cloudImageName = computed(() => {
-  const img = (options.cloudImages || []).find((i) => i.id === cloudImage.value.imageId)
+  const img = (options.cloudImages || []).find((i) => i.id === cloudImage.imageId)
   return img ? img.name : '所选镜像'
 })
+
+// 按当前安装方式取「已选系统名」，再查 osList 得到系统对象（带出 disk_bus / nic_model / cloud_init 能力）
+const activeOsName = computed(() => {
+  if (installMode.value === 'iso') return iso.osName
+  if (installMode.value === 'cloudimage') return cloudImage.osName
+  return ''
+})
+
+const selectedOs = computed(() => options.osList.find((o) => o.name === activeOsName.value) || null)
+const nicModel = computed(() => (selectedOs.value && selectedOs.value.nic_model) || 'virtio')
+const diskBus = computed(() => (selectedOs.value && selectedOs.value.disk_bus) || 'virtio')
 
 // ── 前置条件检查：基建先行，缺什么给引导链接而不是让用户走到中途发现下拉是空的 ──
 const usablePools = computed(() => (options.storagePools || []).filter((p) => p.active))

@@ -101,7 +101,15 @@
           <!-- 任务铃：有进行中的后台任务时亮角标，点开看进度、跳任务中心 -->
           <el-popover trigger="click" width="320">
             <template #reference>
-              <el-badge :value="activeTasks.length" :hidden="!activeTasks.length" :max="99" class="task-bell">
+              <!-- icon-only 触发器：badge 无文字，必须带 title/aria-label（ui-ux-pro-max §1 aria-labels） -->
+              <el-badge
+                :value="activeTasks.length"
+                :hidden="!activeTasks.length"
+                :max="99"
+                class="task-bell"
+                title="任务通知"
+                aria-label="任务通知"
+              >
                 <el-icon :size="18"><Bell /></el-icon>
               </el-badge>
             </template>
@@ -304,9 +312,6 @@ function onUserCommand(cmd) {
   letter-spacing: 0.3px;
   white-space: nowrap;
 }
-.collapse-btn.center {
-  margin: auto;
-}
 .menu {
   border-right: none;
   flex: 1;
@@ -504,8 +509,13 @@ function onUserCommand(cmd) {
   padding: 4px 8px;
   border-radius: 8px;
   color: var(--color-foreground);
-  outline: none;
   transition: background 0.2s ease;
+}
+/* 键盘焦点环保留（ui-ux-pro-max §1 focus-states，反模式"移除焦点环"）：
+   现代浏览器 :focus-visible 只在键盘导航时出现，鼠标点击不再出现默认 outline */
+.user-entry:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
 }
 .user-entry:hover {
   background: var(--color-background);

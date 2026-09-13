@@ -54,9 +54,12 @@ function manualChunks(id) {
   // 终端：只有 ConsolePage 用；xterm 零第三方依赖，是干净的叶子包
   if (inPkg(path, '@xterm/xterm') || inPkg(path, '@xterm/addon-fit')) return 'vendor-xterm'
 
-  // 图表：只有 Dashboard / VmList / VmDetail 用。
-  // 依赖链单向 echarts → zrender → tslib，且 tslib 在本项目只被这两个包引用
-  if (inPkg(path, 'echarts') || inPkg(path, 'zrender') || inPkg(path, 'tslib')) return 'vendor-echarts'
+  // 图表：只有 Dashboard / VmList / VmDetail 用（经 src/utils/echarts.js 按需注册）。
+  // echarts 与 zrender 分拆两个 chunk：按需引入后 echarts 本体已不足 500kB，
+  // 但 echarts+zrender 合并仍超限；依赖链单向 echarts → zrender → tslib
+  // （tslib 只被 zrender 引用），分拆后 chunk 图仍是 DAG
+  if (inPkg(path, 'zrender') || inPkg(path, 'tslib')) return 'vendor-zrender'
+  if (inPkg(path, 'echarts')) return 'vendor-echarts'
 
   // 图标：main.js 全量注册（import * + 遍历），所以必然进首屏。
   // 单独成 chunk 至少能长期缓存，且让"全量注册的代价"在构建报告里看得见。
@@ -89,12 +92,12 @@ export default defineConfig({
     outDir: 'dist',
     assetsDir: 'assets',
     // vite 默认值就是 500，收回来当回归警报用（原先抬到 1500 只是把 2.8MB 单包的告警按掉）。
-    // 仍会有两个 chunk 超限并打印告警，这是刻意留着的、有意义的告警：
-    //   vendor-echarts     1126kB —— 三个页面都是 `import * as echarts`，全量入包；
-    //                                 要降只能改成 echarts/core + 按需 use()，得动 .vue
-    //   vendor-element-plus 906kB —— main.js 是 app.use(ElementPlus) 全量注册，
-    //                                 要降只能上按需引入（unplugin-*），得加依赖 + 动 .vue
-    // 两者都不是「再拆一层 chunk」能解决的，所以不再抬阈值掩盖。
+    //   vendor-echarts 已按需引入（src/utils/echarts.js 统一 echarts/core + use()），
+    //   不再触发本告警；若哪天它重新超限，多半是有人全量引入回退了。
+    // 仍会有一个 chunk 超限并打印告警，这是刻意留着的、有意义的告警：
+    //   vendor-element-plus —— main.js 是 app.use(ElementPlus) 全量注册，
+    //   要降只能上按需引入（unplugin-*），得加依赖 + 动 .vue
+    // 它不是「再拆一层 chunk」能解决的，所以不抬阈值掩盖。
     chunkSizeWarningLimit: 500,
     rollupOptions: {
       output: {

@@ -26,13 +26,15 @@
           <el-icon v-if="collapsed"><ArrowRight /></el-icon>
           <el-icon v-else><ArrowLeft /></el-icon>
         </button>
-        <button class="nav-item" :class="{ active: view === 'vnc' }" @click="select('vnc')">
+        <!-- 折叠态 icon-only 按钮必须有 title 提示（无障碍：icon-only 无 label 即反模式） -->
+        <button class="nav-item" :class="{ active: view === 'vnc' }" :title="collapsed ? '图形控制台 (VNC)' : ''" @click="select('vnc')">
           <el-icon class="icon"><Monitor /></el-icon><span v-if="!collapsed" class="label">图形控制台 (VNC)</span>
         </button>
         <button
           v-if="isAdmin"
           class="nav-item"
           :class="{ active: view === 'ssh' }"
+          :title="collapsed ? 'Web 终端 (SSH)' : ''"
           @click="select('ssh')"
         >
           <el-icon class="icon"><Platform /></el-icon><span v-if="!collapsed" class="label">Web 终端 (SSH)</span>
@@ -41,6 +43,7 @@
           v-if="isAdmin"
           class="nav-item serial-item"
           :class="{ active: view === 'serial' }"
+          :title="collapsed ? '串口 Console（免IP）' : ''"
           @click="select('serial')"
         >
           <el-icon class="icon"><Connection /></el-icon><span v-if="!collapsed" class="label">串口 Console</span>
@@ -174,6 +177,10 @@
               <el-icon v-if="!connecting"><CaretRight /></el-icon>
               <span>{{ connecting ? '连接中…' : '连接串口 Console' }}</span>
             </el-button>
+            <div class="serial-hint">
+              <el-icon><InfoFilled /></el-icon>
+              <span>连上却无输出、敲键无回显？通常是客户机没在 ttyS0 起终端：请在客户机内执行 <code>systemctl enable --now serial-getty@ttyS0</code>，并把 <code>console=ttyS0</code> 追加到内核 cmdline（写入 <code>/etc/default/grub</code> 后执行 <code>grub2-mkconfig -o /boot/grub2/grub.cfg</code> 并重启生效）。</span>
+            </div>
           </div>
 
           <!-- 终端主体（SSH / 串口共用） -->
@@ -197,7 +204,7 @@
               </template>
             </div>
             <div class="term-footer-right">
-              <span class="text-muted"><el-icon><InfoFilled /></el-icon>鼠标选中复制，Ctrl+Shift+V 粘贴</span>
+
             </div>
           </div>
         </div>
@@ -607,7 +614,6 @@ async function initTerminal() {
   term.loadAddon(fitAddon)
   term.open(termEl.value)
   fitAddon.fit()
-  updateTermSize()
 
   term.onData((data) => {
     if (!ws || ws.readyState !== WebSocket.OPEN) return
@@ -1075,6 +1081,27 @@ onUnmounted(() => cleanupConnection())
 .serial-title { color: #e6edf3; font-size: 1.25rem; font-weight: 600; }
 .serial-desc { max-width: 460px; color: #9db1c8; font-size: 0.88rem; line-height: 1.6; }
 .serial-btn { margin-top: 8px; }
+/* 客户机侧排障提示：串口连上但无输出/无回显多半是 guest 没起 getty（见诊断结论），一句话提示即可 */
+.serial-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: 500px;
+  margin-top: 10px;
+  color: #6e7f95;
+  font-size: 0.78rem;
+  line-height: 1.7;
+  text-align: left;
+}
+.serial-hint .el-icon { margin-top: 0.3em; flex: none; }
+.serial-hint code {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(240, 185, 11, 0.12);
+  color: #f0b90b;
+  font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+  font-size: 0.75rem;
+}
 
 /* ---------- 终端主体（含水印） ---------- */
 .term-body {

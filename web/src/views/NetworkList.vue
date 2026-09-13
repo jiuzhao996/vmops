@@ -47,10 +47,12 @@
             <div class="nc-row wide"><span class="nc-label">DHCP 范围</span><span class="mono">{{ row.dhcp_start && row.dhcp_end ? row.dhcp_start + ' - ' + row.dhcp_end : '—' }}</span></div>
           </div>
           <div class="nc-actions">
-            <!-- 启动/停止状态切换钮：运行中显「停止」，停止态显「启动」 -->
+            <!-- 启动/停止状态切换钮：运行中显「停止」，停止态显「启动」；
+                 请求进行中 :loading 禁用，防连点重复提交（ui-ux-pro-max §2 loading-buttons） -->
             <el-button
               v-if="isAdmin"
               :icon="row.active ? VideoPause : VideoPlay"
+              :loading="rowBusy.has(row.name)"
               @click="act(row, row.active ? 'stop' : 'start')"
             >{{ row.active ? '停止' : '启动' }}</el-button>
             <el-button v-if="isAdmin" :icon="Edit" @click="openEdit(row)">编辑 XML</el-button>
@@ -111,6 +113,8 @@ const { isAdmin } = useAuth()
 const networks = ref([])
 const loading = ref(false)
 const saving = ref(false)
+// 启停按行 busy（与自启开关 autostartBusy 同款）：请求中按钮 loading 禁用
+const rowBusy = ref(new Set())
 const createDialog = ref(false)
 const xmlDialog = ref(false)
 const editDialog = ref(false)
@@ -232,6 +236,9 @@ async function act(row, type) {
       return
     }
   }
+  // 按行 busy：请求期间按钮转 loading 并禁用，防连点重复下发
+  rowBusy.value.add(row.name)
+  rowBusy.value = new Set(rowBusy.value)
   try {
     if (type === 'start') await api.startNetwork(row.name)
     else await api.stopNetwork(row.name)
@@ -239,6 +246,9 @@ async function act(row, type) {
     await load()
   } catch (e) {
     ElMessage.error(errMsg(e, '操作失败'))
+  } finally {
+    rowBusy.value.delete(row.name)
+    rowBusy.value = new Set(rowBusy.value)
   }
 }
 
@@ -283,9 +293,6 @@ onMounted(load)
 }
 .mono {
   font-size: 0.85rem;
-}
-.muted {
-  color: var(--color-muted-foreground);
 }
 .edit-tip {
   margin-bottom: var(--space-lg);

@@ -125,7 +125,7 @@
                 :icon="Delete"
                 :disabled="busy.has(vm.id)"
                 :title="'删除 ' + vm.name"
-                @click="moreAction(vm, 'delete')"
+                @click="action(vm, 'delete')"
               />
             </div>
           </el-card>
@@ -182,7 +182,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import * as echarts from 'echarts'
+import echarts from '../utils/echarts'
 import { Refresh, Plus, Upload, VideoPlay, SwitchButton, Monitor, Delete, Search, Cpu, FolderOpened, Connection } from '@element-plus/icons-vue'
 import { api } from '../api'
 import { POLL_DEFAULTS, getPollInterval } from '../utils/settings'
@@ -551,10 +551,7 @@ async function action(vm, type) {
   }
 }
 
-// “更多”下拉统一入口：重启/快照/XML/删除
-function moreAction(vm, cmd) {
-  if (cmd === 'restart' || cmd === 'delete') action(vm, cmd)
-}
+// “更多”下拉已删除：删除钮常驻，重启去详情页顶栏；action 兜底保留 restart 分支
 
 async function openConsole(vm) {
   router.push({ name: 'console', params: { id: vm.id } })

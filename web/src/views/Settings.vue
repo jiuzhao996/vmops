@@ -5,7 +5,10 @@
         <h2 class="page-title">系统设置</h2>
         <span class="page-desc">平台运行参数，保存进数据库、立即生效无需重启；生效配置的只读快照见仪表盘「平台信息」卡，界面轮询偏好已移至顶栏「个人中心」</span>
       </div>
-      <el-button :icon="Refresh" :loading="loading" circle text @click="load" />
+      <!-- icon-only 按钮必须带 tooltip（ui-ux-pro-max §1 aria-labels：icon-only 无文字必须有可访问名称） -->
+      <el-tooltip content="刷新" placement="top">
+        <el-button :icon="Refresh" :loading="loading" circle text aria-label="刷新" @click="load" />
+      </el-tooltip>
     </div>
 
     <!-- 可写配置：DB 持久化、写入即生效 -->

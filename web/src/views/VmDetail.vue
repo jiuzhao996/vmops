@@ -111,6 +111,50 @@
           </el-card>
         </section>
 
+        <!-- 性能 -->
+        <section v-show="activeView === 'perf'" class="panel">
+          <div class="panel-head">
+            <h3 class="panel-title">性能</h3>
+          </div>
+          <div v-if="!isRunning" class="panel-empty">
+            <el-empty description="虚拟机未运行，无实时性能指标" :image-size="90" />
+          </div>
+          <template v-else>
+            <div class="metric-grid">
+              <el-card shadow="never" class="metric">
+                <div class="metric-label">CPU 使用率</div>
+                <el-progress :percentage="Math.round(cpuPct)" :color="usageColor(cpuPct)" :format="() => cpuPct.toFixed(1) + '%'" />
+              </el-card>
+              <el-card shadow="never" class="metric">
+                <div class="metric-label">内存使用率{{ hasGuestMem ? '（客户机）' : '（分配）' }}</div>
+                <el-progress :percentage="Math.round(memPct)" :color="usageColor(memPct)" :format="() => memText()" />
+              </el-card>
+            </div>
+            <div class="metric-grid metric-grid-4">
+              <el-card shadow="never" class="metric">
+                <div class="metric-label">磁盘读取</div>
+                <div class="metric-val mono">{{ fmtRateBytes(stats && stats.disk_read_bps) }}</div>
+              </el-card>
+              <el-card shadow="never" class="metric">
+                <div class="metric-label">磁盘写入</div>
+                <div class="metric-val mono">{{ fmtRateBytes(stats && stats.disk_write_bps) }}</div>
+              </el-card>
+              <el-card shadow="never" class="metric">
+                <div class="metric-label">网络接收</div>
+                <div class="metric-val mono">{{ fmtRateBytes(stats && stats.net_rx_bps) }}</div>
+              </el-card>
+              <el-card shadow="never" class="metric">
+                <div class="metric-label">网络发送</div>
+                <div class="metric-val mono">{{ fmtRateBytes(stats && stats.net_tx_bps) }}</div>
+              </el-card>
+            </div>
+            <el-card shadow="never" class="chart-card">
+              <template #header><span class="card-title">性能曲线（近 60 个采样点：历史来自 Prometheus，之后每 {{ statsIntervalMs / 1000 }}s 实时追加）</span></template>
+              <div ref="perfChartEl" class="perf-chart"></div>
+            </el-card>
+          </template>
+        </section>
+
         <!-- 处理器 -->
         <section v-show="activeView === 'cpu'" class="panel">
           <div class="panel-head">
@@ -373,8 +417,8 @@
 import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import * as echarts from 'echarts'
-import { ArrowLeft, Monitor, VideoPlay, VideoPause, SwitchButton, RefreshRight, Delete, Plus, Refresh, RefreshLeft, Odometer, TrendCharts, Cpu, Coin, FolderOpened, Connection, CameraFilled, Document, MagicStick, Edit, WarningFilled } from '@element-plus/icons-vue'
+import echarts from '../utils/echarts'
+import { ArrowLeft, Monitor, VideoPlay, VideoPause, SwitchButton, RefreshRight, Delete, Plus, Refresh, RefreshLeft, Odometer, TrendCharts, Cpu, Coin, FolderOpened, Connection, CameraFilled, Document, MagicStick, WarningFilled } from '@element-plus/icons-vue'
 import { api } from '../api'
 import { useAuth } from '../store/auth'
 import { pollTask, extractTaskId, taskErrorMessage } from '../utils/task.js'
@@ -554,12 +598,7 @@ async function loadSpec() {
   }
 }
 
-/* ---------- IP 手动编辑（仅管理员） ---------- */
-// 简单格式校验：IPv4 点分十进制 / IPv6（含 :: 缩写，须含冒号；不做完整性语义检查，后端为准）
-const ipv4Re = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/
-const ipv6Re = /^([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$/
-
-
+/* ---------- 处理器 / 内存 ---------- */
 const vcpuInput = ref(1)
 const memInput = ref(1024)
 watch(
@@ -741,7 +780,7 @@ watch(isRunning, (r) => {
   })
 })
 
-/* ---------- 处理器 / 内存 / 引导 ---------- */
+/* ---------- 处理器 / 内存应用 ---------- */
 async function applyVcpu() {
   const n = vcpuInput.value
   if (!n || n <= 0) {
@@ -1308,11 +1347,5 @@ onUnmounted(() => {
 .ov-desc :deep(.el-descriptions__cell) {
   padding-bottom: 16px;
   vertical-align: middle;
-}
-/* IP 行内编辑按钮：紧跟文本、不撑高信息行 */
-.dev-xml :deep(.el-textarea__inner) {
-  font-family: var(--font-mono);
-  font-size: 0.82rem;
-  line-height: 1.55;
 }
 </style>
